@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kamera Probe">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="../icon-180.png">
+<title>Kamera Probe</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 34rem; margin: 0 auto; padding: 1.2rem; background: #EEF4FB; color: #1d2433; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin: 0 0 .4rem; }
+  .box { background: #fff; border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+  .ok { color: #1b7a3a; font-weight: 600; } .nein { color: #a33; font-weight: 600; }
+  input { width: 100%; font-size: 1rem; padding: .5rem; box-sizing: border-box; }
+  button { font-size: 1.1rem; padding: .6rem 1.2rem; margin: .6rem .4rem 0 0; border: 0; border-radius: 8px; background: #3B5BDB; color: #fff; }
+  .grau { background: #888; }
+  video { width: 100%; border-radius: 8px; background: #000; margin-top: .6rem; }
+  .klein { font-size: .85rem; color: #556; }
+</style>
+</head>
+<body>
+<h1>Probe: Gerät verbinden in der App</h1>
+<p class="klein">Nur Spielwerte, keine echten Daten. Fassung 1 (06.11.2026).</p>
+
+<div class="box">
+  <div>Läuft als: <b id="modus"></b></div>
+  <div>Zugangscode auf diesem Gerät: <span id="standZ"></span></div>
+  <div class="klein" id="woher"></div>
+</div>
+
+<div class="box" id="boxVerbinden">
+  <h2>Gerät verbinden</h2>
+  <p class="klein">Scanne den QR-Code „Weiteres Gerät verbinden“ oder füge den Link aus der Einladung ein.</p>
+  <button type="button" id="scan">📷 QR-Code scannen</button>
+  <button type="button" id="stop" class="grau" hidden>Abbrechen</button>
+  <video id="vid" playsinline muted hidden></video>
+  <p class="klein" id="kameraMeldung"></p>
+  <hr style="border:0;border-top:1px solid #dde;margin:1rem 0">
+  <label for="link">Link einfügen</label>
+  <input id="link" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://…#zugang=…">
+  <button type="button" id="uebernehmen">Übernehmen</button>
+  <p class="klein" id="linkMeldung"></p>
+</div>
+
+<div class="box">
+  <button id="weg" type="button" class="grau">Alles auf diesem Gerät löschen</button>
+</div>
+
+<canvas id="cv" hidden></canvas>
+<script src="jsQR.js"></script>
+<script>
+  var KZ = 'kprobe_zugang', KW = 'kprobe_woher';
+  function $(i) { return document.getElementById(i); }
+  var standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  $('modus').textContent = standalone ? 'App vom Home-Bildschirm' : 'Browser';
+
+  function stand() {
+    var z = localStorage.getItem(KZ);
+    $('standZ').className = z ? 'ok' : 'nein';
+    $('standZ').textContent = z ? 'ja (endet auf …' + z.slice(-4) + ')' : 'nein';
+    $('woher').textContent = z ? 'kam ' + (localStorage.getItem(KW) || '?') : '';
+    $('boxVerbinden').hidden = !!z;
+  }
+  // akzeptiert den ganzen Link oder nur den Code
+  function codeAus(text) {
+    text = (text || '').trim();
+    var m = /[#&]zugang=([A-Za-z0-9_-]+)/.exec(text);
+    if (m) return m[1];
+    if (/^[A-Za-z0-9_-]{8,}$/.test(text)) return text;
+    return null;
+  }
+  function verbinden(code, weg) {
+    localStorage.setItem(KZ, code); localStorage.setItem(KW, weg);
+    stopp(); stand();
+    var p = document.createElement('p'); p.className = 'ok'; p.textContent = '✅ Gerät verbunden.';
+    document.querySelector('.box').prepend(p);
+  }
+
+  var strom = null, laeuft = false;
+  function stopp() {
+    laeuft = false;
+    if (strom) { strom.getTracks().forEach(function (t) { t.stop(); }); strom = null; }
+    $('vid').hidden = true; $('stop').hidden = true; $('scan').hidden = false;
+  }
+  $('scan').addEventListener('click', function () {
+    $('kameraMeldung').textContent = 'Kamera wird geöffnet …';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      $('kameraMeldung').textContent = '❌ Kamera hier nicht verfügbar.'; return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then(function (s) {
+      strom = s; var v = $('vid'); v.srcObject = s; v.hidden = false; $('stop').hidden = false; $('scan').hidden = true;
+      v.play(); laeuft = true; $('kameraMeldung').textContent = 'Halte den QR-Code ins Bild.';
+      var cv = $('cv'), cx = cv.getContext('2d', { willReadFrequently: true });
+      (function schleife() {
+        if (!laeuft) return;
+        if (v.readyState === v.HAVE_ENOUGH_DATA) {
+          cv.width = v.videoWidth; cv.height = v.videoHeight;
+          cx.drawImage(v, 0, 0, cv.width, cv.height);
+          var bild = cx.getImageData(0, 0, cv.width, cv.height);
+          var r = jsQR(bild.data, bild.width, bild.height, { inversionAttempts: 'dontInvert' });
+          if (r && r.data) {
+            var c = codeAus(r.data);
+            if (c) { $('kameraMeldung').textContent = ''; verbinden(c, 'über die Kamera in der ' + (standalone ? 'App' : 'Seite')); return; }
+            $('kameraMeldung').textContent = 'Das ist kein Big-Quest-Code.';
+          }
+        }
+        requestAnimationFrame(schleife);
+      })();
+    }).catch(function (e) {
+      $('kameraMeldung').textContent = '❌ Kamera nicht freigegeben oder nicht verfügbar (' + (e && e.name || 'Fehler') + ').';
+      stopp();
+    });
+  });
+  $('stop').addEventListener('click', function () { stopp(); $('kameraMeldung').textContent = ''; });
+  $('uebernehmen').addEventListener('click', function () {
+    var c = codeAus($('link').value);
+    if (!c) { $('linkMeldung').textContent = '❌ Das ist kein gültiger Link.'; return; }
+    $('linkMeldung').textContent = ''; verbinden(c, 'durch Einfügen des Links');
+  });
+  $('weg').addEventListener('click', function () { localStorage.removeItem(KZ); localStorage.removeItem(KW); location.reload(); });
+  stand();
+</script>
+</body>
+</html>
