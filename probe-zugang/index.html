@@ -23,7 +23,7 @@
 </head>
 <body>
 <h1>Probe: Erstanmeldung, Browser und Home-Bildschirm</h1>
-<p class="klein">Nur Spielwerte, keine echten Daten. Fassung 4 (06.11.2026).</p>
+<p class="klein">Nur Spielwerte, keine echten Daten. Fassung 4b (06.11.2026).</p>
 
 <div class="box">
   <p class="ok" id="verbunden" hidden>✅ Gerät verbunden.</p>
@@ -78,7 +78,9 @@
   if (q.zugang) {
     try { history.replaceState(null, '', location.pathname); } catch (e) {}
     localStorage.setItem(KZ, q.zugang);
-    localStorage.setItem(KW, standalone ? 'aus der Startadresse der Home-Bildschirm-App' : 'aus dem QR-Code bzw. Link');
+    localStorage.setItem(KW, !standalone ? 'aus dem QR-Code bzw. Link'
+      : (q.quelle === 'manifest' ? 'beim Start der App – aus der Startadresse, die die App vorgibt (Manifest)'
+                                 : 'beim Start der App – aus der Adresse, mit der die Seite geöffnet wurde'));
     if (q.name) { sessionStorage.setItem('probe_neu', q.name); } else { sessionStorage.removeItem('probe_neu'); }
     if (!standalone) $('verbunden').hidden = false;
   }
@@ -86,7 +88,7 @@
   function manifestMitZugang() {
     var z = localStorage.getItem(KZ); if (!z) return;
     var m = { name: 'Zugang Probe', short_name: 'Zugang Probe', display: 'standalone',
-      start_url: BASIS + 'index.html#zugang=' + encodeURIComponent(z), scope: BASIS,
+      start_url: BASIS + 'index.html#zugang=' + encodeURIComponent(z) + '&quelle=manifest', scope: BASIS,
       background_color: '#EEF4FB', theme_color: '#3B5BDB',
       icons: [{ src: BASIS + '../icon-192.png', sizes: '192x192', type: 'image/png' }, { src: BASIS + '../icon-512.png', sizes: '512x512', type: 'image/png' }] };
     $('mf').setAttribute('href', 'data:application/manifest+json;charset=utf-8,' + encodeURIComponent(JSON.stringify(m)));
