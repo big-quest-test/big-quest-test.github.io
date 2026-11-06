@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Zugang Probe">
+<link rel="manifest" id="mf" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="../icon-180.png">
+<title>Zugang Probe</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 34rem; margin: 0 auto; padding: 1.2rem; background: #EEF4FB; color: #1d2433; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin: 0 0 .4rem; }
+  .box { background: #fff; border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+  .ok { color: #1b7a3a; font-weight: 600; } .nein { color: #a33; font-weight: 600; }
+  label { display: block; margin: .6rem 0 .2rem; }
+  input { width: 100%; font-size: 1.1rem; padding: .5rem; box-sizing: border-box; }
+  button { font-size: 1.1rem; padding: .6rem 1.2rem; margin-top: .8rem; border: 0; border-radius: 8px; background: #3B5BDB; color: #fff; }
+  button:disabled { background: #b8c2dc; }
+  .grau { background: #888; }
+  .klein { font-size: .85rem; color: #556; }
+</style>
+</head>
+<body>
+<h1>Probe: Erstanmeldung, Browser und Home-Bildschirm</h1>
+<p class="klein">Nur Spielwerte, keine echten Daten. Fassung 4 (06.11.2026).</p>
+
+<div class="box">
+  <p class="ok" id="verbunden" hidden>✅ Gerät verbunden.</p>
+  <div>Läuft als: <b id="modus"></b></div>
+  <div>Zugangscode auf diesem Gerät: <span id="standZ"></span></div>
+  <div class="klein" id="woher"></div>
+  <div>Angemeldet: <span id="standP"></span></div>
+  <button type="button" id="ab" class="grau" hidden>Abmelden</button>
+</div>
+
+<!-- Erste Anmeldung (aus dem QR-Code / Link mit Namen): neues Passwort festlegen -->
+<div class="box" id="boxNeu">
+  <h2>Willkommen – Passwort festlegen</h2>
+  <form id="fNeu" action="#" method="post">
+    <label for="nNeu">Anmeldename</label>
+    <input id="nNeu" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" readonly>
+    <label for="pNeu">Neues Passwort</label>
+    <input id="pNeu" name="new-password" type="password" autocomplete="new-password"
+           passwordrules="minlength: 10; required: lower; required: upper; required: digit;">
+    <p class="klein">Mindestens 10 Zeichen, mit Groß- und Kleinbuchstaben und einer Ziffer. Das Gerät schlägt ein starkes Passwort vor.</p>
+    <button type="submit" id="losNeu" disabled>Anmelden</button>
+  </form>
+</div>
+
+<!-- Wieder anmelden (Browser nach dem Abmelden, Home-Bildschirm-App, weiteres Gerät) -->
+<div class="box" id="boxAlt">
+  <h2>Anmelden</h2>
+  <form id="fAlt" action="#" method="post">
+    <label for="nAlt">Anmeldename</label>
+    <input id="nAlt" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <label for="pAlt">Passwort</label>
+    <input id="pAlt" name="password" type="password" autocomplete="current-password">
+    <button type="submit" id="losAlt" disabled>Anmelden</button>
+  </form>
+</div>
+
+<div class="box">
+  <button id="weg" type="button" class="grau">Alles auf diesem Gerät löschen</button>
+</div>
+
+<script>
+  var KZ = 'probe_zugang', KW = 'probe_woher', KN = 'probe_name', KP = 'probe_pw';
+  var BASIS = location.origin + location.pathname.replace(/[^/]*$/, '');
+  var standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  document.getElementById('modus').textContent = standalone ? 'App vom Home-Bildschirm' : 'Browser';
+  function ende(v) { return '…' + v.slice(-4); }
+  function $(i) { return document.getElementById(i); }
+
+  // Link/Startadresse: #zugang=<wert>[&name=<name>] – ersetzt immer einen alten Wert, sofort aus der Adresse entfernen
+  var q = {};
+  location.hash.replace(/^#/, '').split('&').forEach(function (t) { var i = t.indexOf('='); if (i > 0) q[t.slice(0, i)] = decodeURIComponent(t.slice(i + 1)); });
+  if (q.zugang) {
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    localStorage.setItem(KZ, q.zugang);
+    localStorage.setItem(KW, standalone ? 'aus der Startadresse der Home-Bildschirm-App' : 'aus dem QR-Code bzw. Link');
+    if (q.name) { sessionStorage.setItem('probe_neu', q.name); } else { sessionStorage.removeItem('probe_neu'); }
+    if (!standalone) $('verbunden').hidden = false;
+  }
+
+  function manifestMitZugang() {
+    var z = localStorage.getItem(KZ); if (!z) return;
+    var m = { name: 'Zugang Probe', short_name: 'Zugang Probe', display: 'standalone',
+      start_url: BASIS + 'index.html#zugang=' + encodeURIComponent(z), scope: BASIS,
+      background_color: '#EEF4FB', theme_color: '#3B5BDB',
+      icons: [{ src: BASIS + '../icon-192.png', sizes: '192x192', type: 'image/png' }, { src: BASIS + '../icon-512.png', sizes: '512x512', type: 'image/png' }] };
+    $('mf').setAttribute('href', 'data:application/manifest+json;charset=utf-8,' + encodeURIComponent(JSON.stringify(m)));
+  }
+
+  // nur das passende Formular bleibt im Dokument (sonst verwechselt das Gerät die Felder)
+  var neuName = sessionStorage.getItem('probe_neu');
+  var z = localStorage.getItem(KZ), n = localStorage.getItem(KN);
+  var zeigeNeu = !!(z && !n && neuName), zeigeAlt = !!(z && !n && !neuName);
+  if (!zeigeNeu) $('boxNeu').remove(); else $('nNeu').value = neuName;
+  if (!zeigeAlt) $('boxAlt').remove();
+
+  function stand() {
+    var z = localStorage.getItem(KZ), n = localStorage.getItem(KN), p = localStorage.getItem(KP);
+    $('standZ').className = z ? 'ok' : 'nein'; $('standZ').textContent = z ? 'ja (endet auf ' + ende(z) + ')' : 'nein – bitte QR-Code scannen';
+    $('woher').textContent = z ? 'kam ' + (localStorage.getItem(KW) || '?') : '';
+    $('standP').className = n ? 'ok' : 'nein'; $('standP').textContent = n ? n + ' (Passwort endet auf ' + ende(p) + ')' : 'nein';
+    $('ab').hidden = !n;
+  }
+  function gutNeu(v) { return v.length >= 10 && /[a-z]/.test(v) && /[A-Z]/.test(v) && /\d/.test(v); }
+  function pruefe() {
+    if ($('losNeu')) $('losNeu').disabled = !gutNeu($('pNeu').value);
+    if ($('losAlt')) $('losAlt').disabled = !($('nAlt').value.trim() && $('pAlt').value);
+  }
+  setInterval(pruefe, 400); // Ausfüllen durch den Passwortspeicher löst nicht immer "input" aus
+  document.addEventListener('input', pruefe);
+
+  function angemeldet(form, name, pw) {
+    localStorage.setItem(KN, name); localStorage.setItem(KP, pw);
+    sessionStorage.removeItem('probe_neu');
+    form.parentNode.innerHTML = '<p class="ok">✅ Angemeldet als ' + name + '.</p>';
+    stand();
+  }
+  if ($('fNeu')) $('fNeu').addEventListener('submit', function (e) {
+    e.preventDefault(); var p = $('pNeu').value; if (!gutNeu(p)) return; angemeldet(this, $('nNeu').value, p);
+  });
+  if ($('fAlt')) $('fAlt').addEventListener('submit', function (e) {
+    e.preventDefault(); var n = $('nAlt').value.trim(), p = $('pAlt').value; if (!n || !p) return; angemeldet(this, n, p);
+  });
+  $('ab').addEventListener('click', function () { localStorage.removeItem(KN); localStorage.removeItem(KP); sessionStorage.removeItem('probe_neu'); location.reload(); });
+  $('weg').addEventListener('click', function () {
+    [KZ, KW, KN, KP].forEach(function (k) { localStorage.removeItem(k); }); sessionStorage.clear(); location.reload();
+  });
+  manifestMitZugang(); stand(); pruefe();
+</script>
+</body>
+</html>
