@@ -16746,9 +16746,9 @@ function anmPunkteErsetzen(text, ersatz) {
 }
 
 /* Set by the build (werkzeug/version.mjs) inside the encrypted vault; null when opened unbuilt. */
-const APP_VERSION={"n":162,"major":0,"minor":150,"patch":0,"kanal":"beta","hash":"142967d","date":"08.11.2026 22:56","draft":false};
+const APP_VERSION={"n":165,"major":0,"minor":151,"patch":0,"kanal":"beta","hash":"4ab2bdf","date":"09.11.2026 12:25","draft":false};
 /* Set by the build (werkzeug/releases.mjs) inside the encrypted vault; null when opened unbuilt. */
-const APP_RELEASES=[{"version":"V 0.150 (Betaversion)","date":"08.11.2026 22:56","epics":[{"de":"Releasedokumentation ist jetzt direkt im Admin-Bereich der App sichtbar.","en":"Release notes are now visible directly in the admin area of the app."}],"stories":[{"de":"Der Admin sieht pro Fassung eine Übersicht nach Epic, User Story und Bugfix.","en":"The admin sees one overview per version, grouped by epic, user story and bugfix."}],"bugfixes":[{"de":"Fehlende Einträge zeigen einen ruhigen Hinweis statt einer kaputten Ansicht.","en":"Missing entries show a calm note instead of a broken screen."}]}];
+const APP_RELEASES=[{"version":"V 0.151 (Betaversion)","date":"09.11.2026 12:25","epics":[{"de":"Releasedokumentation ist jetzt direkt im Admin-Bereich der App sichtbar.","en":"Release notes are now visible directly in the admin area of the app."}],"stories":[{"de":"Der Admin sieht pro Fassung eine Übersicht nach Epic, User Story und Bugfix.","en":"The admin sees one overview per version, grouped by epic, user story and bugfix."}],"bugfixes":[{"de":"Fehlende Einträge zeigen einen ruhigen Hinweis statt einer kaputten Ansicht.","en":"Missing entries show a calm note instead of a broken screen."}]}];
 /* Set by the build from werkzeug/konten.json (S3 login); null = no accounts, app runs without login. */
 /* Accounts v2 (S11 Stufe 1): normAccounts and the rules who sees which child are in module src/module/rechte.mjs. */
 /* Stage 3b, task "Anmeldung im Testbau": the storage of the accounts (module konto). Set only for the test build -
@@ -19817,9 +19817,9 @@ function releaseAdminHTML(){
     +(list.length ? `<div class="about-menu">${list.map(entry=>releaseEntryHTML(entry, de)).join('')}</div>` : `<p class="small">${de?'Noch keine Releaseeinträge hinterlegt.':'No release entries have been added yet.'}</p>`)
     +`</div>`;
 }
-function versionAdminHTML(){
+function versionAdminHTML({title=true}={}){
   const v=APP_VERSION, de=PL()==='de';
-  return `<h2>${de?'App-Version':'App version'}</h2><p id="versionInfo">${v?`<b>${esc(versionLabel(v,de))}</b> · ${de?'gebaut':'built'} ${esc(v.date)} · ${esc(v.hash)}`:(de?'Entwicklungsstand (nicht gebaut)':'Development build (not built)')}</p><p class="small">${de?'Betafassungen tragen sichtbar „(Betaversion)“. Finale Freigaben erscheinen später als „V 1.0.0“.':'Beta releases visibly carry “(Beta version)”. Final releases later appear as “V 1.0.0”.'}</p><p><button class="btn small" id="checkUpdate" type="button">${de?'Nach neuer Version suchen':'Check for a new version'}</button></p><p id="updateMessage" class="small" role="status"></p>`;
+  return `${title?`<h2>${de?'App-Version':'App version'}</h2>`:''}<p id="versionInfo">${v?`<b>${esc(versionLabel(v,de))}</b> · ${de?'gebaut':'built'} ${esc(v.date)} · ${esc(v.hash)}`:(de?'Entwicklungsstand (nicht gebaut)':'Development build (not built)')}</p><p class="small">${de?'Betafassungen tragen sichtbar „(Betaversion)“. Finale Freigaben erscheinen später als „V 1.0.0“.':'Beta releases visibly carry “(Beta version)”. Final releases later appear as “V 1.0.0”.'}</p><p><button class="btn small" id="checkUpdate" type="button">${de?'Nach neuer Version suchen':'Check for a new version'}</button></p><p id="updateMessage" class="small" role="status"></p>`;
 }
 async function publishedVersion(){
   /* Test instance (stage 3c): the published page is the app itself in plain text - no key, no vault. */
@@ -20655,7 +20655,7 @@ function grantOpened(){
 function accountsAdminHTML(){
   const de=PL()==='de', seen=store.get('lastSeen',{});
   const art=u=>[u.role==='student'?(de?'Kind':'child'):(de?'Erwachsen':'adult'), u.teacher&&(de?'Lehrkraft':'teacher'), u.admin&&'Admin', u.test&&(de?'Testkind':'test child')].filter(Boolean).join(', ');
-  return `<h2>${de?'Konten':'Accounts'}</h2><p class="phow">${de?'Nur Verwaltungsangaben – keine Inhalte. Den Lernstand eines Kindes sehen Sie nur mit Freigabe der Eltern.':'Administrative details only – no contents. You see a child’s progress only with a grant from the parents.'}</p>
+  return `<h2>${de?'Kontenübersicht':'Account overview'}</h2>
     <table class="dt"><thead><tr><th>${de?'Anmeldename':'Login name'}</th><th>${de?'Art':'Kind'}</th><th>${de?'Zuletzt auf diesem Gerät':'Last on this device'}</th></tr></thead><tbody>${APP_ACCOUNTS.users.map(u=>`<tr><td>${esc(u.user)}</td><td>${esc(art(u))}</td><td>${seen[u.id]?fmtDay(seen[u.id].slice(0,10)):'–'}</td></tr>`).join('')}</tbody></table>`;
 }
 /* ---------- backup (S11 Stufe 1, 02.11.): the child's data as a file, and back ----------
@@ -20792,27 +20792,36 @@ function settingsSecs(){
   if(!teacher && kidOk) s.push(['settings', kid?(de?'👧 Für ':'👧 For ')+esc(kid):T.settings, storyCapHTML()+reminderHTML()+profileAdminHTML()+mySchoolAdminHTML()]);
   if(canBackup()) s.push(['backup', de?'💾 Sicherung & Daten':'💾 Backup & data', backupHTML()]);
   if(canBackup()) s.push(['grants', de?'🔐 Zugriff & Freigaben':'🔐 Access & grants', grantsHTML()]);
-  if(accountsOn() && adultUser && adultUser.admin) s.push(['accounts', de?'🛠 Konten':'🛠 Accounts', accountsAdminHTML()]);
   // accounts in the storage (test build): family and devices (task "Einladungen - Oberflaeche")
   if(KONTO_UI && kontoIch()){
     if(kontoIch().art==='parent') s.push(['family', de?'👪 Familie':'👪 Family', kontoFamilieHTML()]);
-    s.push(['devices', de?'📱 Meine Geräte':'📱 My devices', kontoGeraeteHTML()]);
+    if(!(adultUser && adultUser.admin)) s.push(['devices', de?'📱 Meine Geräte':'📱 My devices', kontoGeraeteHTML()]);
   }
   s.push(['aboutapp', de?'ℹ️ Über die App':'ℹ️ About the app', aboutAppHTML()]);
   return s;
 }
+function administrationHTML(){
+  if(!(accountsOn() && adultUser && adultUser.admin)) return '';
+  const de=PL()==='de', sec=(title, body, id)=>`<details class="about-sec" data-admin="${id}"><summary>${title}</summary><div class="about-sec-body">${body}</div></details>`;
+  return `<div class="about-menu">`
+    +sec(de?'Kontenübersicht':'Account overview', accountsAdminHTML().replace(/^<h2>[^<]*<\/h2>/,''), 'accounts')
+    +(KONTO_UI && kontoIch()?sec(de?'Zugangsdaten und Geräte':'Access details and devices', kontoGeraeteHTML(), 'devices'):'')
+    +(KONTO_UI?sec(de?'Daten exportieren und löschen':'Export and delete data', kontoLoeschenInfoHTML(de), 'loeschen'):'')
+    +sec(de?'Versions- und Releaseinformationen':'Version and release information', versionAdminHTML({title:false})+releaseAdminHTML(), 'version')
+    +`</div>`;
+}
 /* ⚙ "About the app" (concept 5.8, B3): about this app and the important note, privacy, legal notice (placeholder),
    version. The texts are the same as on the info page (one place, R1); only the headings fit the section. */
 function aboutAppHTML(){
-  const lang=PL(), de=lang==='de', {main, sections}=aboutParts(lang), privacy=sections.find(s=>PRIVACY_TITLES.includes(s.title));
+  const lang=PL(), de=lang==='de', admin=!!(adultUser && adultUser.admin), {main, sections}=aboutParts(lang), privacy=sections.find(s=>PRIVACY_TITLES.includes(s.title));
   const sec=(title,body,id)=>`<details class="about-sec" data-about="${id}"><summary>${title}</summary><div class="about-sec-body">${body}</div></details>`;
   return `<div class="pabout">${main.replace(/<h2>[^<]*<\/h2>/,'')}</div><div class="about-menu">`
     +(privacy?sec(privacy.title, privacy.body, 'privacy'):'')
-    +(KONTO_UI?sec(de?'Daten exportieren und löschen':'Export and delete data', kontoLoeschenInfoHTML(de), 'loeschen'):'')
+    +(KONTO_UI && !admin?sec(de?'Daten exportieren und löschen':'Export and delete data', kontoLoeschenInfoHTML(de), 'loeschen'):'')
     // third-party code in the test build (task "Erstanmeldung per QR-Code"): the QR reader of "Connect this device"
     +(KONTO_UI && typeof ANM_QR_LESER!=='undefined'?sec(de?'Fremde Programmteile':'Third-party components', `<p>${de?'Den QR-Code beim Verbinden eines Geräts liest':'The QR code when connecting a device is read by'} <b>${esc(ANM_QR_LESER.name)} ${esc(ANM_QR_LESER.version)}</b> (Cosmo Wolfe ${de?'und Mitwirkende':'and contributors'}) – ${esc(ANM_QR_LESER.lizenz)}. ${de?'Unverändert in die App eingebettet; das Kamerabild bleibt auf dem Gerät, kein fremder Server.':'Embedded in the app unchanged; the camera picture stays on the device, no third-party server.'} <a href="${esc(ANM_QR_LESER.url)}" target="_blank" rel="noopener">${esc(ANM_QR_LESER.url)}</a> · <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">Apache License 2.0</a></p>`, 'lizenzen'):'')
     +sec(de?'Impressum':'Legal notice', `<p>${de?'Wird ergänzt.':'To be added.'}</p>`, 'imprint')
-    +`</div>`+versionAdminHTML()+releaseAdminHTML();
+    +`</div>`+(admin?'':versionAdminHTML())+(admin?'':releaseAdminHTML());
 }
 /* accounts in the storage (family build): export and deletion in plain words; removing old versions from GitHub's
    history is the admin's job by hand (guide in the source repository, docs/endgueltig-loeschen.md) */
@@ -20904,6 +20913,7 @@ function renderSheets(){
     const secs=[];
     secs.push(['concept', ABOUT_UI[lang].title, `<div class="about-menu">${aboutSectionsHTML(lang,null,true)}</div>`]);
     secs.push(['support', de?'🤝 So unterstützen Sie Ihr Kind':'🤝 How to support your child', supportGuideHTML()]);
+    if(accountsOn() && adultUser && adultUser.admin) secs.push(['administration', de?'🛠 Administration':'🛠 Administration', administrationHTML()]);
     if(accountsOn() && kidOk && !(viewerGrant() && !viewerGrant().scope.includes('school'))) secs.push(['school', de?'🏫 Schulische Einstufungen':'🏫 School assessments', schoolHTML()]);
     if(!teacher && kidOk) secs.push(['sheets', T.sheets, sheetsPageHTML()]);
     if(onOverview) html+=secHTML(secs);
@@ -21849,7 +21859,7 @@ function kontoNachAbgleich(r, vorher){
     ? (de?'⚠️ Ein Gerät wollte einen fremden Schlüssel eintragen. Er wurde abgelehnt – es wurde nichts übernommen.':'⚠️ A device tried to add a foreign key. It was refused – nothing was taken over.')
     : (de?`⚠️ Die Einladung für ${nameVon(w.id)} wurde nicht mit dem richtigen Schlüssel eingelöst. Es wurde nichts übernommen. Bitte die Einladung zurückziehen und neu einladen.`:`⚠️ The invitation for ${nameVon(w.id)} was not used with the right key. Nothing was taken over. Please withdraw it and invite again.`));
   for(const id of r.abgelaufen) melde('x:'+id, 'info', de?`Die Einladung für ${nameVon(id)} ist abgelaufen.`:`The invitation for ${nameVon(id)} has expired.`);
-  for(const x of r.erneuert) melde('e:'+x.person+':'+x.fingerabdruck, 'info', de?`ℹ️ ${x.name||'Der andere Elternteil'} hat einen neuen Schlüssel. Prüfwörter: ${x.fingerabdruck}`:`ℹ️ ${x.name||'The other parent'} has a new key. Check words: ${x.fingerabdruck}`);
+  for(const x of r.erneuert) melde('e:'+x.person+':'+x.fingerabdruck, 'info', de?`ℹ️ ${x.name||'Der andere Elternteil'} hat den Zugang neu abgesichert. Prüfwörter: ${x.fingerabdruck}`:`ℹ️ ${x.name||'The other parent'} secured the access again. Check words: ${x.fingerabdruck}`);
   // task "Familienfassung bauen": a child deleted by a parent (its data already left this device - module einladung) and
   // accounts no longer in the storage: off this device too (list, key copy, session, recordings); whoever of them is
   // logged in here now is logged out
@@ -21922,7 +21932,7 @@ function kontoNeuAnmelden(){
 function kontoZeileHTML(){
   const de=PL()==='de', s=kontoStatus, jetzt=Date.now(), teile=[];
   const neu=kontoNeuAnmelden();
-  if(neu) teile.push(`<b>⚠️ ${neu==='entfernt'?(de?'Dieses Gerät wurde entfernt.':'This device was removed.'):(de?'Ihr Schlüssel wurde auf einem anderen Gerät erneuert.':'Your key was renewed on another device.')} ${de?'Bitte melden Sie sich hier neu an.':'Please log in again here.'}</b> <button type="button" class="btn small primary" id="kNeuAnmelden">${de?'Neu anmelden':'Log in again'}</button>`);
+  if(neu) teile.push(`<b>⚠️ ${neu==='entfernt'?(de?'Dieses Gerät wurde entfernt.':'This device was removed.'):(de?'Ihr Zugang wurde auf einem anderen Gerät neu abgesichert.':'Your access was secured again on another device.')} ${de?'Bitte melden Sie sich hier neu an.':'Please log in again here.'}</b> <button type="button" class="btn small primary" id="kNeuAnmelden">${de?'Neu anmelden':'Log in again'}</button>`);
   if(s.fehler==='offline') teile.push(de?'📴 Kein Netz – wird nachgeholt.':'📴 No connection – will catch up later.');
   else if(s.fehler==='zugang') teile.push(`🔑 ${de?'Der Zugangscode dieses Geräts passt nicht mehr (abgelaufen oder ungültig).':'The access code of this device no longer works (expired or not valid).'} <button type="button" class="btn small" id="kTokenNeu">${de?'Gerät neu verbinden':'Connect again'}</button>`);
   else if(s.fehler==='limit') teile.push(de?`⏳ Gerade zu viele Abgleiche – ab ${kontoUhrzeit(s.wartenBis)} geht es weiter.`:`⏳ Too many syncs just now – it goes on from ${kontoUhrzeit(s.wartenBis)}.`);
@@ -22017,7 +22027,7 @@ function kontoGeraeteHTML(){
   // task "Erstanmeldung per QR-Code": connect another device (e.g. the Home Screen app, it has its own storage) with a QR code
   if(anmZugangscode(KONTO_SPEICHER, localStorage)) h+=`<p><button type="button" class="btn" id="kVerbindenQr">📲 ${de?'Weiteres Gerät verbinden':'Connect another device'}</button></p>`;
   if(k.art==='parent') for(const c of kontoVerb(k).kinder.filter(x=>x.name)) h+=block(c.id, (de?'Geräte von ':'Devices of ')+esc(kontoKindName(c.id, c.name)));
-  return h+`<h3 class="psub">${de?'Schlüssel erneuern':'Renew your key'}</h3><p class="small">${de?'Falls jemand Ihr Passwort kennen könnte: neues Passwort, neuer Schlüssel und neuer Wiederherstellungscode.':'If someone might know your password: new password, new key and new recovery code.'}</p><p><button type="button" class="btn" id="kErneuern">🔑 ${de?'Schlüssel erneuern':'Renew key'}</button></p>`;
+  return h+`<h3 class="psub">${de?'Zugang neu absichern':'Secure access again'}</h3><p class="small">${de?'Benutzen Sie das, wenn jemand Ihr Passwort kennen könnte. Sie setzen ein neues Passwort, sichern Ihren Zugang neu ab und bekommen einen neuen Wiederherstellungscode. Den sichern Sie danach bitte gleich. Auf anderen Geräten melden Sie sich danach mit dem neuen Passwort neu an.':'Use this if someone might know your password. You set a new password, secure your access again and get a new recovery code. Save it right away. Then log in again on your other devices with the new password.'}</p><p><button type="button" class="btn" id="kErneuern">🔑 ${de?'Zugang neu absichern':'Secure access again'}</button></p>`;
 }
 /* ---------- panels (kontoBlatt) ---------- */
 const kontoHinweisNamen = de => de?'3 bis 20 Zeichen: kleine Buchstaben, Ziffern, Punkt oder Bindestrich.':'3 to 20 characters: small letters, digits, dot or hyphen.';
@@ -22044,7 +22054,7 @@ function kontoBlattHTML(){
   if(b.art==='frageneu') return `<h2 class="psubjtitle">${de?`Jetzt neues Passwort für ${esc(b.name)}?`:`New password for ${esc(b.name)} now?`}</h2><p>${de?`Das Gerät ist entfernt. Bis ${esc(b.name)} ein neues Passwort hat, kann es noch lesen, was es schon hatte. Mit dem neuen Passwort ist auch das vorbei; der Lernstand bleibt erhalten.`:`The device is removed. Until ${esc(b.name)} has a new password, it can still read what it already had. A new password ends that; the progress stays.`}</p><p><button type="button" class="btn primary" id="kNeuJa">${de?'Ja, Start-QR-Code zeigen':'Yes, show start QR code'}</button> <button type="button" class="btn" id="kNeuSpaeter">${de?'Später':'Later'}</button></p>${msg}`;
   if(b.art==='erneuern'){
     const sugg=pwSuggest();
-    return back+`<h2 class="psubjtitle">🔑 ${b.geraet?(de?'Eigenes Gerät entfernen':'Remove own device'):(de?'Schlüssel erneuern':'Renew key')}</h2><p class="small">${b.geraet?(de?`„${esc(b.gname)}“ wird entfernt. Damit es nichts Neues mehr lesen kann, bekommen Sie dabei einen neuen Schlüssel.`:`“${esc(b.gname)}” is removed. So that it cannot read anything new, you get a new key with it.`):''} ${de?'Sie wählen ein neues Passwort und bekommen einen neuen Wiederherstellungscode. Auf Ihren anderen Geräten melden Sie sich danach mit dem neuen Passwort neu an – bis dahin sehen sie nichts Neues.':'You choose a new password and get a new recovery code. Then log in again with the new password on your other devices – until then they see nothing new.'}</p><form id="kErnForm" class="login-form"><input class="sr" type="text" name="username" autocomplete="username" value="${esc(adultUser?adultUser.user:'')}" readonly tabindex="-1" aria-hidden="true">${pwFeldHTML('kErnAlt', de?'Aktuelles Passwort':'Current password', ' autocomplete="current-password" required')}<p class="pw-suggest">${de?'Vorschlag':'Suggestion'}: <b id="kErnSugg">${esc(sugg)}</b> <button type="button" class="btn small" id="kErnUse">${de?'Übernehmen':'Use it'}</button> <button type="button" class="btn small" id="kErnAnother">${de?'Anderer Vorschlag':'Another one'}</button></p>${pwFeldHTML('kErnNeu1', de?'Neues Passwort':'New password', ' autocomplete="new-password" required')}${pwFeldHTML('kErnNeu2', de?'Passwort wiederholen':'Repeat password', ' autocomplete="new-password" required')}<button class="btn primary" id="kErnGo" type="submit">${b.geraet?(de?'Entfernen und Schlüssel erneuern':'Remove and renew key'):(de?'Schlüssel erneuern':'Renew key')}</button>${msg}</form>`;
+    return back+`<h2 class="psubjtitle">🔑 ${b.geraet?(de?'Eigenes Gerät entfernen':'Remove own device'):(de?'Zugang neu absichern':'Secure access again')}</h2><p class="small">${b.geraet?(de?`„${esc(b.gname)}“ wird entfernt. Damit es nichts Neues mehr lesen kann, sichern Sie Ihren Zugang dabei neu ab.`:`“${esc(b.gname)}” is removed. So that it cannot read anything new, this also secures your access again.`):''} ${de?'Sie setzen ein neues Passwort und bekommen einen neuen Wiederherstellungscode. Den sichern Sie danach bitte gleich. Auf Ihren anderen Geräten melden Sie sich danach mit dem neuen Passwort neu an.':'You set a new password and get a new recovery code. Save it right away. Then log in again on your other devices with the new password.'}</p><form id="kErnForm" class="login-form"><input class="sr" type="text" name="username" autocomplete="username" value="${esc(adultUser?adultUser.user:'')}" readonly tabindex="-1" aria-hidden="true">${pwFeldHTML('kErnAlt', de?'Aktuelles Passwort':'Current password', ' autocomplete="current-password" required')}<p class="pw-suggest">${de?'Vorschlag':'Suggestion'}: <b id="kErnSugg">${esc(sugg)}</b> <button type="button" class="btn small" id="kErnUse">${de?'Übernehmen':'Use it'}</button> <button type="button" class="btn small" id="kErnAnother">${de?'Anderer Vorschlag':'Another one'}</button></p>${pwFeldHTML('kErnNeu1', de?'Neues Passwort':'New password', ' autocomplete="new-password" required')}${pwFeldHTML('kErnNeu2', de?'Passwort wiederholen':'Repeat password', ' autocomplete="new-password" required')}<button class="btn primary" id="kErnGo" type="submit">${b.geraet?(de?'Entfernen und Zugang neu absichern':'Remove and secure access'):(de?'Zugang neu absichern':'Secure access again')}</button>${msg}</form>`;
   }
   if(b.art==='code') return `<div id="kCodeBox"></div>`;
   // task "Familienfassung bauen": export and deletion (module kinddaten; concept 13, US12.1/12.2)
@@ -22698,11 +22708,11 @@ const KONTO_GUIDE={
   kid:[['The very first time:','your grown-up shows you a QR code. Scan it with the camera (or in Big Quest: “📷 Scan QR code”). Your name is already there – then you choose your own password. Take the idea with three words and a number, like <i>Tiger-Lamp-River-4271</i>. Let the iPad remember it – then Face ID fills it in for you. A short password does not work: a strong one keeps your things safe. On another iPad, use the same user name and password.']],
   adultDe:[['Einmal einrichten:','den Link Ihrer Einladung öffnen oder ihren QR-Code mit der Kamera scannen: Das Gerät wird verbunden („✅ Gerät verbunden“), Ihr Anmeldename steht schon da. Dann ein eigenes Passwort festlegen – Ihr Gerät schlägt ein starkes vor und merkt es sich. Danach den Wiederherstellungscode sichern: im Passwortspeicher und als Datei. Freiwillig: Teilen → „Zum Home-Bildschirm“. Die App dort hat einen eigenen Speicher und fragt einmal nach dem Zugangscode: „📷 QR-Code scannen“ (Einladung, oder ⚙️ → „📱 Meine Geräte“ → „Weiteres Gerät verbinden“) oder den Link einfügen.'],
     ['Anmelden:','"I\'m a parent or teacher", Benutzername und Passwort – der Passwortspeicher schlägt beides vor. Auf weiteren Geräten genauso; ein neues Gerät verbinden Sie einmal mit dem Link oder QR-Code der Einladung. Der Zugangscode verbindet nur das Gerät, er ist nicht Ihr Passwort.'],
-    ['Kind anmelden:','unter ⚙️ → „👪 Familie“ → „Kind anlegen“: Die App zeigt einen Start-QR-Code. Auf dem Gerät des Kindes die Kamera darauf richten (oder in Big Quest „📷 QR-Code scannen“) und zusammen ein Merkpasswort wählen. Auf weiteren Geräten: Benutzername und Passwort. Passwort vergessen? Dort „Neues Passwort“ – der Lernstand bleibt. Geschwister am selben Gerät wählen sich unter „Who\'s here?“ aus. Geräte entfernen und den Schlüssel erneuern: ⚙️ → „📱 Meine Geräte“.'],
+    ['Kind anmelden:','unter ⚙️ → „👪 Familie“ → „Kind anlegen“: Die App zeigt einen Start-QR-Code. Auf dem Gerät des Kindes die Kamera darauf richten (oder in Big Quest „📷 QR-Code scannen“) und zusammen ein Merkpasswort wählen. Auf weiteren Geräten: Benutzername und Passwort. Passwort vergessen? Dort „Neues Passwort“ – der Lernstand bleibt. Geschwister am selben Gerät wählen sich unter „Who\'s here?“ aus. Geräte entfernen und den Zugang neu absichern: ⚙️ → „📱 Meine Geräte“.'],
     ['Passwort vergessen:','Auf der Anmeldeseite „Passwort vergessen?“ tippen, den Wiederherstellungscode eingeben und ein neues Passwort wählen. Sie sind sofort wieder angemeldet; den neuen Code sichern Sie im geöffneten Bereich. Ohne Code hilft der Admin. Nach 5 Fehlversuchen 30 Sekunden warten. Startcodes, Startlinks und den Wiederherstellungscode nicht weitergeben.']],
   adultEn:[['Set up once:','open the link of your invitation or scan its QR code with the camera: the device gets connected (“✅ Device connected”) and your login name is already there. Then choose your own password – your device suggests a strong one and remembers it. Next, save the recovery code: in the password manager and as a file. Optional: Share → “Add to Home Screen”. The app there has its own storage and asks once for the access code: “📷 Scan QR code” (the invitation, or ⚙️ → “📱 My devices” → “Connect another device”) or paste the link.'],
     ['Log in:','"I\'m a parent or teacher", username and password – the password manager suggests both. The same on other devices; connect a new device once with the link or QR code of the invitation. The access code only connects the device; it is not your password.'],
-    ['Log in your child:','under ⚙️ → “👪 Family” → “Add a child”: the app shows a start QR code. On your child’s device, point the camera at it (or tap “📷 Scan QR code” in Big Quest) and choose a memorable password together. On other devices: username and password. Forgot the password? There, “New password” – the progress stays. Siblings on the same device pick themselves under “Who\'s here?”. Remove devices and renew your key: ⚙️ → “📱 My devices”.'],
+    ['Log in your child:','under ⚙️ → “👪 Family” → “Add a child”: the app shows a start QR code. On your child’s device, point the camera at it (or tap “📷 Scan QR code” in Big Quest) and choose a memorable password together. On other devices: username and password. Forgot the password? There, “New password” – the progress stays. Siblings on the same device pick themselves under “Who\'s here?”. Remove devices and secure access again: ⚙️ → “📱 My devices”.'],
     ['Forgot your password?','On the login page tap “Forgot your password?”, enter your recovery code and choose a new password. You are logged in right away; save the new code in the area that opens. Without the code, the admin can help. After 5 wrong tries, wait 30 seconds. Keep start codes, start links and the recovery code private.']],
   teacherDe:[['Anmelden:','Beim ersten Mal den Link der Einladung vom Admin öffnen oder ihren QR-Code scannen: Das Gerät wird verbunden, Ihr Anmeldename steht schon da. Dann ein eigenes Passwort festlegen (Ihr Gerät schlägt ein starkes vor) und den Wiederherstellungscode sichern – im Passwortspeicher und als Datei. Danach: "I\'m a parent or teacher", Benutzername und Passwort; ein weiteres Gerät einmal mit demselben Link verbinden.'],
     ['Passwort vergessen:','Auf der Anmeldeseite „Passwort vergessen?“ tippen, den Wiederherstellungscode eingeben und ein neues Passwort wählen. Sie sind sofort wieder angemeldet; den neuen Code sichern Sie im geöffneten Bereich. Ohne Code hilft der Admin. Nach 5 Fehlversuchen 30 Sekunden warten.']],
@@ -22771,15 +22781,15 @@ const GUIDE_TEACHER_EN=kontoTexte(`<h3 class="pguide-h">Help for teachers</h3><o
 </ol>`, KONTO_GUIDE.teacherEn);
 const GUIDE_ADMIN_DE=kontoTexte(`<h3 class="pguide-h">Für den Admin</h3><ol class="steps">
 <li><b>Konten und Startcodes</b> pflegen Sie mit dem Konten-Werkzeug auf Ihrem Rechner. Neue Startcodes als Startlink oder QR-Code nur persönlich übergeben.</li>
-<li><b>Übersicht der Konten:</b> ${GO('konten','🛠 Konten')} – nur Verwaltungsangaben, keine Inhalte.</li>
-<li><b>Releasedokumentation:</b> ${GO('ueber','ℹ️ Über die App')} – nur für den Admin sichtbar, je Fassung gegliedert nach Epic, User Story und Bugfix.</li>
+<li><b>Administration:</b> auf der Übersichtsseite mit <b>Kontenübersicht</b> und <b>Versions- und Releaseinformationen</b>.</li>
+<li><b>Releasedokumentation:</b> in <b>Administration</b> unter <b>Versions- und Releaseinformationen</b> – nur für den Admin, gegliedert nach Epic, User Story und Bugfix.</li>
 <li><b>Lernstand eines Kindes:</b> nur mit Freigabe der Eltern, wie bei einer Lehrkraft – mit Vor- und Nachnamen, Geburtsdatum, Klasse und Schule, ohne Emoji und Einstellungen. Ihr eigenes Kind sehen Sie über Ihr Elternkonto.</li>
 <li><b>Testkinder:</b> oben in der Kinderauswahl unter „🧪 Testkinder“; „▶ Als Testkind spielen“ öffnet die Kinderseite mit Testdaten.</li>
 </ol>`, KONTO_GUIDE.adminDe);
 const GUIDE_ADMIN_EN=kontoTexte(`<h3 class="pguide-h">For the admin</h3><ol class="steps">
 <li><b>Accounts and start codes</b> are maintained with the account tool on your computer. Hand over new start codes as a start link or QR code in person only.</li>
-<li><b>Account overview:</b> ${GO_EN('konten','🛠 Accounts')} – administrative details only, no contents.</li>
-<li><b>Release notes:</b> ${GO_EN('ueber','ℹ️ About the app')} – visible only to the admin, grouped for each version into Epic, User Story and Bugfix.</li>
+<li><b>Administration:</b> on the overview page with <b>Account overview</b> and <b>Version and release information</b>.</li>
+<li><b>Release notes:</b> in <b>Administration</b> under <b>Version and release information</b> – only for the admin, grouped into Epic, User Story and Bugfix.</li>
 <li><b>A child’s progress:</b> only with a grant from the parents, like a teacher – with first and last name, date of birth, class and school, without emoji and settings. You see your own child through your parent account.</li>
 <li><b>Test children:</b> at the top in the child list under “🧪 Test children”; “▶ Play as test child” opens the child’s pages with test data.</li>
 </ol>`, KONTO_GUIDE.adminEn);
