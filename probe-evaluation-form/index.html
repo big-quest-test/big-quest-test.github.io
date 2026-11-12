@@ -139,7 +139,8 @@ button{font:inherit;color:inherit}
 .pf-names .field.ms-class{flex:0 0 34%}
 .school-ask{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .profile-dlg .row > .btn{flex:1 1 100px}
-/* Narrow phone profile actions stay visible without sacrificing 44px touch targets. */
+/* Keep the complete profile form, including Close/Save, inside a 320x568 iPhone viewport.
+   Retain the 44px touch targets and the existing scroll fallback for larger text. */
 @media (max-width:359px) and (max-height:640px){
   #profileDlg{padding:8px 10px;max-height:calc(100dvh - 8px);font-size:.93rem}
   #profileDlg form{gap:5px}
@@ -16540,8 +16541,9 @@ function anmEingefuegt(text, adresse) {
   if (!t) return null;
   const i = t.indexOf('#');
   if (i >= 0) {
-    // Pilot only: main and evaluation preview share the SAME protected test storage.
-    // Restrict cross-path invitations to this precise domain and preview path.
+    // The isolated Big Quest evaluation pilot uses the SAME protected test storage as the
+    // main test app. Accept only its exact main-test origin as an invitation source.
+    // Never permit this cross-path exception for production, other hosts or other preview paths.
     const incoming = anmBasis(t.slice(0, i)), current = anmBasis(adresse);
     const knownTestRoot = current === 'https://big-quest-test.github.io/probe-evaluation-form'
       && incoming === 'https://big-quest-test.github.io';
@@ -16948,9 +16950,9 @@ function schulFormularQuelle(context, transfer, source) {
 if(typeof window!=='undefined') Object.defineProperty(window,'bigQuestEvaluationForm',{value:Object.freeze({context:schulZeilenKontext,source:schulFormularQuelle})});
 
 /* Set by the build (werkzeug/version.mjs) inside the encrypted vault; null when opened unbuilt. */
-const APP_VERSION={"n":3,"major":0,"minor":152,"patch":1,"kanal":"beta","hash":"04f3aba","date":"11.11.2026 17:36","draft":false};
+const APP_VERSION={"n":202,"major":0,"minor":153,"patch":0,"kanal":"beta","hash":"c5c6421","date":"12.11.2026 07:28","draft":false};
 /* Set by the build (werkzeug/releases.mjs) inside the encrypted vault; null when opened unbuilt. */
-const APP_RELEASES=[{"version":"V 0.152.1 (Betaversion)","date":"11.11.2026 17:36","epics":[{"de":"Auf der Testinstanz können Eltern Schulevaluationen erfassen, korrigieren und zurücknehmen.","en":"On the test instance, parents can add, correct and withdraw school evaluations."}],"stories":[{"de":"Die Tagesrunde kann passende Subtraktions- und Rundungsaufgaben aufnehmen. Der Fassungsverlauf zeigt, ob der App-Speicher die Bewertung bestätigt hat.","en":"The daily round can include targeted subtraction and rounding exercises. The revision history shows whether the app storage has confirmed the evaluation."}],"bugfixes":[{"de":"Nach dem Upgrade werden zuvor übersprungene Schulbewertungen beim Abgleich nachgeholt.","en":"After an upgrade, sync recovers previously skipped school evaluations."}]},{"version":"V 0.152 (Betaversion)","date":"","epics":[{"de":"Der Admin kann jetzt ein Elternkonto direkt in der App einladen.","en":"The admin can now invite a parent account directly in the app."}],"stories":[{"de":"Unter Administration gibt es dafuer einen eigenen Bereich mit Link, QR-Code und offenen Einladungen.","en":"Under Administration there is now a dedicated area with link, QR code and open invitations."},{"de":"Der Admin legt dabei nur das Elternkonto an; Kind, Lehrkraft und Familienzuordnung bleiben ausserhalb dieses Pfads.","en":"This path creates only the parent account; child, teacher and family assignment stay outside this flow."}],"bugfixes":[{"de":"Bereits vergebene Anmeldenamen werden beim Admin-Einladen direkt abgefangen.","en":"Already-used login names are caught immediately during the admin invitation flow."}]}];
+const APP_RELEASES=[{"version":"V 0.153 (Betaversion)","date":"12.11.2026 07:28","epics":[{"de":"Auf der Testinstanz können Eltern Schulevaluationen erfassen, korrigieren und zurücknehmen.","en":"On the test instance, parents can add, correct and withdraw school evaluations."}],"stories":[{"de":"Die Tagesrunde kann passende Subtraktions- und Rundungsaufgaben aufnehmen. Der Fassungsverlauf zeigt, ob der App-Speicher die Bewertung bestätigt hat.","en":"The daily round can include targeted subtraction and rounding exercises. The revision history shows whether the app storage has confirmed the evaluation."}],"bugfixes":[{"de":"Gemeinsames Formular für manuelle und schulische Bewertungsübernahme im isolierten Elternpilot; Geräteabnahme weiterhin offen.","en":"One form for manual and school evaluation import in the isolated parent pilot; live-device acceptance pending."},{"de":"Nach dem Upgrade werden zuvor übersprungene Schulbewertungen beim Abgleich nachgeholt.","en":"After an upgrade, sync recovers previously skipped school evaluations."}]},{"version":"V 0.152 (Betaversion)","date":"","epics":[{"de":"Der Admin kann jetzt ein Elternkonto direkt in der App einladen.","en":"The admin can now invite a parent account directly in the app."}],"stories":[{"de":"Unter Administration gibt es dafuer einen eigenen Bereich mit Link, QR-Code und offenen Einladungen.","en":"Under Administration there is now a dedicated area with link, QR code and open invitations."},{"de":"Der Admin legt dabei nur das Elternkonto an; Kind, Lehrkraft und Familienzuordnung bleiben ausserhalb dieses Pfads.","en":"This path creates only the parent account; child, teacher and family assignment stay outside this flow."}],"bugfixes":[{"de":"Bereits vergebene Anmeldenamen werden beim Admin-Einladen direkt abgefangen.","en":"Already-used login names are caught immediately during the admin invitation flow."}]}];
 /* Set by the build from werkzeug/konten.json (S3 login); null = no accounts, app runs without login. */
 /* Accounts v2 (S11 Stufe 1): normAccounts and the rules who sees which child are in module src/module/rechte.mjs. */
 /* Stage 3b, task "Anmeldung im Testbau": the storage of the accounts (module konto). Set only for the test build -
