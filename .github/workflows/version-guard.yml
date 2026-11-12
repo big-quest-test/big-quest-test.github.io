@@ -1,0 +1,65 @@
+name: Check published Big Quest build versions
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  stamp:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify both published build stamps
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+
+          const paths = ['index.html', 'probe-evaluation-form/index.html'];
+          const vNumber = v => [v.major,v.minor,v.patch];
+          const compare = (a,b) => {
+            for(let i=0;i<3;i++){ if(a[i]!==b[i])return a[i]-b[i] }
+            return 0;
+          };
+          function stamp(text, path) {
+            const m = text.match(/const APP_VERSION=(\{[^}]*\});/);
+            assert.ok(m, path + ': no build version');
+            const v = JSON.parse(m[1]);
+            for (const f of ['major','minor','patch']) assert.ok(Number.isInteger(v[f]) && v[f]>=0, path+': invalid '+f);
+            assert.equal(v.kanal, 'beta', path + ': not a beta test build');
+            assert.match(v.hash, /^[a-f0-9]{7}$/, path + ': invalid source commit hash');
+            assert.match(v.date, /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/, path+': invalid build date');
+            assert.equal(v.draft, false, path + ': unpublished draft');
+            const rel = text.match(/const APP_RELEASES=(\[[^;]*\]);/);
+            assert.ok(rel, path + ': missing release notes');
+            const current = JSON.parse(rel[1])[0];
+            const shown = v.patch===0 ? `V ${v.major}.${v.minor} (Betaversion)` :
+              `V ${v.major}.${v.minor}.${v.patch} (Betaversion)`;
+            assert.equal(current.version, shown, path + ': displayed version disagrees with build');
+            assert.equal(current.date, v.date, path + ': release date disagrees with build');
+            return v;
+          }
+          const before = process.env.BEFORE_SHA;
+          for (const path of paths) {
+            const now = fs.readFileSync(path,'utf8');
+            const v = stamp(now,path);
+            if (before && /^[a-f0-9]{40}$/.test(before) && !/^0+$/.test(before)) {
+              let prev;
+              try { prev = execFileSync('git',['show',before+':'+path],{encoding:'utf8'}); }
+              catch { prev = null; }
+              if (prev!==null && now!==prev) {
+                const old=stamp(prev,path);
+                assert.ok(compare(vNumber(v),vNumber(old))>0,
+                  path + ': changed HTML needs a higher beta version, not a silent patch');
+                assert.notEqual(v.hash,old.hash,path+': missing fresh source commit stamp');
+              }
+            }
+            console.log(path, 'OK', v.major+'.'+v.minor+'.'+v.patch, v.date, v.hash);
+          }
+          NODE
