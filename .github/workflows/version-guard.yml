@@ -36,7 +36,7 @@ jobs:
             assert.match(v.hash, /^[a-f0-9]{7}$/, path + ': invalid source commit hash');
             assert.match(v.date, /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/, path+': invalid build date');
             assert.equal(v.draft, false, path + ': unpublished draft');
-            const rel = text.match(/const APP_RELEASES=(\[[^;]*\]);/);
+            const rel = text.match(/const APP_RELEASES=(\[[\s\S]*?\]);/);
             assert.ok(rel, path + ': missing release notes');
             const current = JSON.parse(rel[1])[0];
             const shown = v.patch===0 ? `V ${v.major}.${v.minor} (Betaversion)` :
