@@ -139,6 +139,19 @@ button{font:inherit;color:inherit}
 .pf-names .field.ms-class{flex:0 0 34%}
 .school-ask{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .profile-dlg .row > .btn{flex:1 1 100px}
+/* Narrow phone profile actions stay visible without sacrificing 44px touch targets. */
+@media (max-width:359px) and (max-height:640px){
+  #profileDlg{padding:8px 10px;max-height:calc(100dvh - 8px);font-size:.93rem}
+  #profileDlg form{gap:5px}
+  #profileDlg .pf-set legend{margin-bottom:2px}
+  #profileDlg .pf-emojis{gap:3px}
+  #profileDlg .pf-names .field input{padding:5px 7px;min-height:44px}
+  #profileDlg .pf-foot{gap:4px}
+  #profileDlg .pf-foot .btn{padding:5px 7px}
+  #profileDlg .pf-bday{gap:4px}
+  #profileDlg h2{margin:0}
+}
+
 .login-body{display:flex;flex-direction:column;gap:14px;background:var(--surface);border:2px solid var(--line);border-radius:22px;padding:20px;margin-top:8px}
 .login-copy{display:grid;gap:4px;margin-top:8px;color:var(--muted);text-align:center}.login-copy p{margin:0}
 .login-roles{display:flex;flex-direction:column;gap:12px}
@@ -16527,7 +16540,12 @@ function anmEingefuegt(text, adresse) {
   if (!t) return null;
   const i = t.indexOf('#');
   if (i >= 0) {
-    if (i > 0 && adresse !== undefined && anmBasis(t.slice(0, i)) !== anmBasis(adresse)) return /^https?:\/\//i.test(t) ? { fremd: true } : null;
+    // Pilot only: main and evaluation preview share the SAME protected test storage.
+    // Restrict cross-path invitations to this precise domain and preview path.
+    const incoming = anmBasis(t.slice(0, i)), current = anmBasis(adresse);
+    const knownTestRoot = current === 'https://big-quest-test.github.io/probe-evaluation-form'
+      && incoming === 'https://big-quest-test.github.io';
+    if (i > 0 && adresse !== undefined && incoming !== current && !knownTestRoot) return /^https?:\/\//i.test(t) ? { fremd: true } : null;
     return anmEinladungLesen(t.slice(i));
   }
   if (/^https?:\/\//i.test(t) || /[=&/]/.test(t) || /\s/.test(roh)) return null;          // only the code: one word
