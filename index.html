@@ -4664,6 +4664,8 @@ const ANN_LIMITS = {
 const annObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const annOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const annEnc = new TextEncoder();
+const annGleichePub = (a, b) => annObj(a) && annObj(b) && a.ecdh === b.ecdh && a.ecdsa === b.ecdsa;
+const annBestaetigungOk = (b) => annObj(b) && Object.keys(b).length === 2 && b.v === 1 && typeof b.at === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(b.at) && Number.isFinite(Date.parse(b.at));
 function annCanon(x) {
   if (x === null || typeof x !== 'object') return JSON.stringify(x);
   if (Array.isArray(x)) return '[' + x.map((v) => annCanon(v === undefined ? null : v)).join(',') + ']';
@@ -4692,27 +4694,64 @@ function canonicalBytes(event, area) {
   if (typeof area !== 'string' || !area) throw new Error('annahme: Bereich fehlt.');
   return annEnc.encode('bq-sig1|' + area + '|' + annCanon(event));
 }
+/* A first signature after renewal attests the unchanged intent at a separate signing time. This is deliberately
+   a different signature domain; neither an ordinary signature nor a changed confirmation can be substituted. */
+function annBestaetigteBytes(event, area, bestaetigt) {
+  canonicalBytes(event, area); // the same area validation as the legacy format
+  return annEnc.encode('bq-sig2|' + area + '|' + annCanon({ event, bestaetigt }));
+}
 /* -> { event, sig }; a malformed event is not signed */
-async function signEvent(event, area, myKeys) {
+async function signEvent(event, area, myKeys, bestaetigt) {
   const errors = checkEvent(event);
   if (errors.length) throw new Error('annahme: Ereignis ungueltig, nicht unterschrieben (' + errors.join('; ') + ')');
   const copy = JSON.parse(JSON.stringify(event));
+  if (bestaetigt !== undefined) {
+    if (event.type !== 'school_evaluation' || !annBestaetigungOk(bestaetigt) || checkEvent({ ...event, at: bestaetigt.at }).length) throw new Error('annahme: Bestaetigung ungueltig.');
+    const b = { ...bestaetigt };
+    return { event: copy, sig: await signBytes(myKeys, annBestaetigteBytes(copy, area, b)), bestaetigt: b };
+  }
   return { event: copy, sig: await signBytes(myKeys, canonicalBytes(copy, area)) };
+}
+
+/* Historical eligibility remains mandatory. The attesting key must be a later key of the SAME continuously admitted
+   parent, and the original device must stay registered throughout. Ended/re-added membership or devices cannot bridge
+   the gap. Check against signing time, not read time: a valid stored signature remains replayable after later renewals.
+   The transport's key-version/removal guard still rejects late uploads made with revoked keys. */
+function annBestaetigtZuDerZeit(member, e, b, z) {
+  if (!Array.isArray(member.perioden) || !annObj(member.geraete) || !Number.isFinite(z.now)) return { grund: 'unterschrift' };
+  const von = effectiveTime(e.at, z.now), bis = Date.parse(b.at);
+  if (!(von < bis) || bis > z.now) return { grund: 'unterschrift' };
+  const start = member.perioden.findIndex((p) => p === annZur(member.perioden, von));
+  const ende = member.perioden.findIndex((p) => p === annZur(member.perioden, bis));
+  if (start < 0 || ende <= start) return { grund: 'nicht-mitglied' };
+  const l = member.perioden.slice(start, ende + 1);
+  if (l.some((p, i) => p.role !== 'parent' || (i && l[i - 1].bis !== p.von))) return { grund: 'rolle-darf-nicht' };
+  if (annGleichePub(l[0].pub, l[l.length - 1].pub)) return { grund: 'unterschrift' };
+  const g = member.geraete[e.device];
+  if (!Array.isArray(g) || !g.some((p) => (p.von === null || p.von <= von) && (p.bis === null || bis < p.bis))) return { grund: 'geraet-nicht-angemeldet' };
+  return annZuDerZeit(member, { ...e, at: b.at }, z);
 }
 
 /* ---------- accept ---------- */
 /* item = { event, sig } -> { ok: true } or { ok: false, grund } (grund: one of ANNAHME_GRUENDE) */
 async function acceptEvent(item, zulassung) {
   annCheckAdmission(zulassung);
-  if (!annObj(item) || Object.keys(item).some((k) => k !== 'event' && k !== 'sig') || checkEvent(item.event).length) return { ok: false, grund: 'format' };
+  if (!annObj(item) || Object.keys(item).some((k) => !['event', 'sig', 'bestaetigt'].includes(k)) || checkEvent(item.event).length ||
+      (annOwn(item, 'bestaetigt') && (item.event.type !== 'school_evaluation' || !annBestaetigungOk(item.bestaetigt) || checkEvent({ ...item.event, at: item.bestaetigt.at }).length))) return { ok: false, grund: 'format' };
   const e = item.event;
   const eintrag = annOwn(zulassung.members, e.author) ? zulassung.members[e.author] : null;
   if (!annObj(eintrag)) return { ok: false, grund: 'autor-unbekannt' };
   const zeit = annZuDerZeit(eintrag, e, zulassung);
   if (zeit.grund) return { ok: false, grund: zeit.grund };
-  const member = zeit.member;
+  let member = zeit.member;
   if (!Array.isArray(member.devices) || !member.devices.includes(e.device)) return { ok: false, grund: 'geraet-fremd' };
-  if (typeof item.sig !== 'string' || !item.sig || !annObj(member.pub) || !(await verifyBytes(member.pub, canonicalBytes(e, zulassung.area), item.sig))) return { ok: false, grund: 'unterschrift' };
+  if (item.bestaetigt) {
+    const b = annBestaetigtZuDerZeit(eintrag, e, item.bestaetigt, zulassung);
+    if (b.grund) return { ok: false, grund: b.grund };
+    member = b.member;
+  }
+  const bytes = item.bestaetigt ? annBestaetigteBytes(e, zulassung.area, item.bestaetigt) : canonicalBytes(e, zulassung.area);
+  if (typeof item.sig !== 'string' || !item.sig || !annObj(member.pub) || !(await verifyBytes(member.pub, bytes, item.sig))) return { ok: false, grund: 'unterschrift' };
   if (!passtZumBereich(e, zulassung.area)) return { ok: false, grund: 'bereich-falsch' };
   if (!roleMayWrite(member.role, e, zulassung.area)) return { ok: false, grund: 'rolle-darf-nicht' };
   return { ok: true };
@@ -5188,7 +5227,7 @@ const ABGLEICH_BUENDEL_MAX = 100;
 const ABGLEICH_GRUENDE = Object.freeze(['entschluesseln', 'eintrag-passt-nicht', ...ANNAHME_GRUENDE, 'nach-entfernung']);
 
 // Older clients advanced their school cursor even after dropping unknown evaluation events.
-const ABG_SCHULE_LESESTAND = 1;
+const ABG_SCHULE_LESESTAND = 2; // reread immutable bundles rejected by clients without confirmation envelopes
 const ABG_KEYS = ['bereich', 'geraet', 'ausgang', 'unterwegs', 'naechsteNr', 'merker', 'wartend', 'log'];
 const abgObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const abgStr = (x) => typeof x === 'string' && x.length > 0;
@@ -5215,7 +5254,7 @@ function abgPruefeStand(st) {
 function abgPruefeSchluessel(s) {
   if (!abgObj(s) || !(s.keys instanceof Map)) throw abgFehler('schluessel braucht keys (Map Version -> Schluessel).');
 }
-const abgEintragOk = (x) => abgObj(x) && Object.keys(x).length === 2 && abgStr(x.sig) && checkEvent(x.event).length === 0;
+const abgEintragOk = (x) => abgObj(x) && Object.keys(x).every((k) => ['event', 'sig', 'bestaetigt'].includes(k)) && abgStr(x.sig) && checkEvent(x.event).length === 0;
 
 /* puts entries into the log: the same id once, order and choice of variant exactly like mergeLog (every device the
    same); for the same event with different signatures the smaller signature stays (again: every device the same) */
@@ -5300,6 +5339,43 @@ async function senden(stand, { zugang, schluessel } = {}) {
   return { gesendet };
 }
 
+/* A prepared, not yet confirmed bundle was sealed with an area key version that has been replaced since by a change
+   that renewed the keys of the author of its entries (key_rotated.erneuert): readers would drop it (holen: old key
+   version, number beyond the stand of the change). The entries themselves are fine - signed by the author's keys of that
+   time, in the period of their own time. So only the TRANSPORT is made anew: the prepared bundle is dropped and senden
+   prepares it again with the current key version. The entries (event and signature), their order and the bundle
+   number stay exactly as they are - no new variant of any event, no new time, nothing is signed here.
+   erlaubt(entry) -> true / false (async allowed): the caller's check for an entry that the guard would drop (its
+   author renewed his keys, they are on this device, the admission accepts the entry, ...).
+   Nothing changes (false) when: no bundle, no newer key version, no such key change, a removed author or a removed
+   device is involved, or erlaubt says no for any affected entry. -> true when the prepared bundle was dropped. */
+async function buendelErneuern(stand, { schluessel, erlaubt } = {}) {
+  abgPruefeStand(stand); abgPruefeSchluessel(schluessel);
+  const u = stand.unterwegs;
+  if (!u || typeof erlaubt !== 'function' || !Number.isInteger(u.inhalt.kv) || !(schluessel.aktuell > u.inhalt.kv)) return false;
+  const teil = stand.ausgang.slice(0, u.anzahl);
+  if (!teil.length || teil.length !== u.anzahl) return false;
+  const wechsel = stand.log.filter((x) => abgObj(x) && abgObj(x.event) && x.event.type === 'key_rotated' && abgObj(x.event.payload)).map((x) => x.event.payload);
+  const liste = (w, k) => (Array.isArray(w[k]) ? w[k] : []);
+  const bis = (w, d) => (abgObj(w.stand) && Object.prototype.hasOwnProperty.call(w.stand, d) ? w.stand[d] : 0);
+  let betroffen = 0;
+  for (const w of wechsel) {
+    if (!Number.isInteger(w.version) || !(u.inhalt.kv < w.version)) continue;
+    if (liste(w, 'geraete').includes(stand.geraet)) return false;
+    const spaet = u.nr > bis(w, stand.geraet);
+    for (const x of teil) {
+      const a = x.event.author;
+      if (liste(w, 'entfernt').includes(a)) { if (spaet) return false; continue; }
+      if (!spaet || !liste(w, 'erneuert').includes(a)) continue;
+      if (!(await erlaubt(x))) return false;
+      betroffen++;
+    }
+  }
+  if (!betroffen) return false;
+  stand.unterwegs = null;
+  return true;
+}
+
 /* ---------- fetch ---------- */
 /* lists from the marker plus "wartend", reads, decrypts, checks with annahme and puts the accepted entries into the
    log. Nothing is dropped silently: every entry is either accepted or reported in "verworfen" with a reason; a bad
@@ -5363,7 +5439,7 @@ async function holen(stand, { zugang, schluessel, zulassung, now } = {}) {
     // the device may still hold the key (a child's device until the new password), so the version does not tell
     const vomEntfernten = wechsel.some((w) => Array.isArray(w.geraete) && w.geraete.includes(x.event.device) && (dev !== x.event.device || nr > bis(w, dev)));
     if (zuSpaet || vomEntfernten) verworfen.push({ ...ohneKv(m), grund: 'nach-entfernung', ...typ(x) });
-    else if (abgEintragOk(x)) angenommen.push({ event: x.event, sig: x.sig });
+    else if (abgEintragOk(x)) angenommen.push(abgClone(x));
   }
 
   // one step: from here on nothing can fail half-way
@@ -6429,7 +6505,40 @@ async function gabBereich(o, area, ziel, anker, stand) {
       if (!gabObj(e) || e.device !== geraet || bekannt.has(e.id) || bereichVonEreignis(e) === '*' || !passtZumBereich(e, area)) continue;
       if (art === 'freigabe' && BEREICH_AUCH[e.type] === 'freigabe') continue;
       if (!Object.prototype.hasOwnProperty.call(personen, e.author)) { bericht.ohneSchluessel++; continue; }
-      vormerken(stand, await signEvent(e, area, signier(e.author)), { now });
+      let bestaetigt;
+      if (e.type === 'school_evaluation') {
+        const p = personen[e.author], m = zul.members[e.author], pe = m && m.perioden[m.perioden.length - 1];
+        const gl = m && gabObj(m.geraete) && Array.isArray(m.geraete[geraet]) ? m.geraete[geraet] : null;
+        const et = effectiveTime(e.at, now), frueher = m && m.perioden.find((q) => (q.von === null || q.von <= et) && (q.bis === null || et < q.bis));
+        // First-sign only, with the freshly logged-in same parent and the current area key. The admission checks BOTH
+        // times, continuous membership/device eligibility and the new key; an invalid intent stays in the app log.
+        if (frueher && !gabGleichePub(frueher.pub, offen(e.author) ? p.alt.pub : p.pub)) {
+          if (!schreiber || offen(e.author) || p.role !== 'parent' || !pe || pe.bis !== null || !gabGleichePub(pe.pub, p.pub) ||
+              !gl || !gl.length || gl[gl.length - 1].bis !== null || typeof p.nachAnmeldung !== 'function' || !p.nachAnmeldung(e, geraet)) continue;
+          bestaetigt = { v: 1, at: new Date(now).toISOString() };
+        }
+      }
+      const eintrag = await signEvent(e, area, signier(e.author), bestaetigt);
+      if (e.type === 'school_evaluation' && !(await acceptEvent(eintrag, zul)).ok) continue;
+      vormerken(stand, eintrag, { now });
+    }
+    // 4b. a prepared, unconfirmed bundle sealed with an area key version that a key renewal of its entries' author has
+    //     replaced since (the upload was interrupted, the author renewed his keys on another device, he is logged in
+    //     here again): readers would drop it (module abgleich, holen: old key version beyond the stand of the change).
+    //     Only the transport is made anew (module abgleich, buendelErneuern) - the entries stay byte for byte as they
+    //     are. Only for an entry of an author whose keys are on this device NOW and whom the admission shows with exactly
+    //     these keys, from a device registered for him now (no device_removed), that is no admission event and fits this
+    //     area (child binding), and that the admission built here accepts (old signature valid in the period of its own
+    //     time). Nobody else's entry, no removed author or device, nothing confirmed; no check of the readers is loosened.
+    if (schreiber && stand.unterwegs) {
+      const erlaubt = async (x) => {
+        const e = x.event, p = personen[e.author], m = zul.members[e.author];
+        if (!p || e.device !== geraet || bereichVonEreignis(e) === '*' || !passtZumBereich(e, area) || offen(e.author)) return false;
+        const pe = m && m.perioden[m.perioden.length - 1], gl = m && gabObj(m.geraete) && Array.isArray(m.geraete[geraet]) ? m.geraete[geraet] : null;
+        if (!pe || pe.bis !== null || !gabGleichePub(pe.pub, p.pub) || !gl || !gl.length || gl[gl.length - 1].bis !== null) return false;
+        return (await acceptEvent(x, zul)).ok === true;
+      };
+      await buendelErneuern(stand, { schluessel: schreiber, erlaubt });
     }
     // 5. send
     if (stand.ausgang.length || stand.unterwegs) {
@@ -6600,6 +6709,11 @@ async function geraetAbgleichen({ ablage, zugang, personen, kinder = [], familie
 // Wrong use (missing access, clock, ...) throws a plain Error without code.
 // Names: every helper starts with "kto"/"KTO_" because all modules and index.html share one scope in the app.
 
+
+/* Runtime-only proof of a successful password login. Never serialized, restored from cache or supplied by callers.
+   It binds recovery to the actual private CryptoKey objects and login device. The app copies account containers in
+   kontoMerken/kontoKonto; those in-memory copies share the keys. IndexedDB/structured-clone keys have new identities. */
+const ktoAnmeldungen = new WeakMap();
 
 /* kinds of account (the roles of the events) */
 const KONTO_ARTEN = Object.freeze(['child', 'parent', 'teacher', 'admin']);
@@ -7085,7 +7199,10 @@ async function anmelden({ zugang, anmeldename, passwort, runden = PBKDF2_ROUNDS 
   const akt = await ktoAktuell(zugang, e);
   const schluessel = await ktoOeffnen(akt.gesperrt, e.kennung, akt.pub, 0, passwort, runden);
   if (!schluessel) throw ktoFehler('anmeldung');
-  return ktoKonto(e, n, schluessel, akt.stand, akt.pub);
+  const konto = ktoKonto(e, n, schluessel, akt.stand, akt.pub);
+  if (typeof zugang.geraet === 'string') ktoAnmeldungen.set(schluessel.ecdsa.privateKey, { person: konto.kennung, role: konto.art,
+    signKey: schluessel.ecdsa.privateKey, exchangeKey: schluessel.ecdh.privateKey, pub: { ...akt.pub }, geraet: zugang.geraet });
+  return konto;
 }
 
 /* ---------- recovery code (US9.4) ---------- */
@@ -7168,6 +7285,14 @@ function kontoPersonen(...konten) {
       ...(k.ursprung && !ktoGleichePub(k.ursprung, k.pub) ? { ursprung: { ...k.ursprung } } : {}),
       ...(k.alt ? { alt: { keys: k.alt.schluessel, pub: { ...k.alt.pub } } } : {}),
     };
+    const a = ktoAnmeldungen.get(k.schluessel.ecdsa && k.schluessel.ecdsa.privateKey);
+    if (a && a.role === 'parent' && k.art === a.role && a.person === k.kennung && ktoGleichePub(a.pub, k.pub)) {
+      out[k.kennung].nachAnmeldung = (e, geraet) => {
+        return ktoObj(e) && e.author === a.person && k.art === a.role && k.kennung === a.person && e.device === geraet &&
+          geraet === a.geraet && ktoObj(k.schluessel) && ktoObj(k.schluessel.ecdsa) && ktoObj(k.schluessel.ecdh) && k.schluessel.ecdsa.privateKey === a.signKey &&
+          k.schluessel.ecdh.privateKey === a.exchangeKey && ktoGleichePub(a.pub, k.pub);
+      };
+    }
   }
   return out;
 }
@@ -19105,9 +19230,9 @@ function anmNativeGeraet({ postMessage, verbunden, pruefen, uebernehmen } = {}) 
 }
 
 /* Set by the build (werkzeug/version.mjs) inside the encrypted vault; null when opened unbuilt. */
-const APP_VERSION={"n":210,"major":0,"minor":152,"patch":6,"kanal":"beta","hash":"e17a46b","date":"22.11.2026 17:51","draft":false};
+const APP_VERSION={"n":211,"major":0,"minor":152,"patch":7,"kanal":"beta","hash":"2c6d143","date":"22.11.2026 21:28","draft":false};
 /* Set by the build (werkzeug/releases.mjs) inside the encrypted vault; null when opened unbuilt. */
-const APP_RELEASES=[{"version":"V 0.152.6 (Betaversion)","date":"22.11.2026 17:51","epics":[{"de":"Die möglichen Sterne werden vor jeder Aufgabe angezeigt. Leichte und normale Aufgaben aus schon einmal sicheren Quests bringen bei direkter Wahl keine weiteren Sterne.","en":"Each task shows its possible stars in advance. Easy and normal tasks from quests that were secure before give no further stars when chosen directly."},{"de":"Der vergrößerbare Wissensbaum wächst mit sicheren Quests, Stufe E und erstmals gelösten Neuland-Aufgaben.","en":"The knowledge tree can be enlarged and grows with secure quests, level E and first solved discovery tasks."}],"stories":[{"de":"Neue Blätter, Blüten und Früchte schalten verlässlich eine Geschichte oder einen besonderen Witz frei.","en":"New leaves, flowers and fruit reliably unlock a story or a special joke."},{"de":"Ein Tageswort ergänzt den Kinderbereich; Eltern erhalten eine tägliche Gesprächsfrage. Witze, Pisolala und Tageswort lassen sich freiwillig mit 👍 oder 👎 bewerten.","en":"A daily word joins the child area; parents get a daily conversation question. Jokes, Pisolala and the daily word have optional thumbs-up/down feedback."},{"de":"Beim Update bleiben erreichte Titel, gesammelte Sterne und gewachsene Baumzeichen erhalten.","en":"The update preserves earned titles, collected stars and existing tree growth."}],"bugfixes":[{"de":"Neue Schulbewertungen aktualisieren nach dem Abgleich auch den automatischen Übungsfokus.","en":"New school evaluations also refresh the automatic practice focus after sync."},{"de":"Specific Examples vermeidet auch bei seltenen Auswahlkombinationen doppelte Aufgaben.","en":"Specific Examples avoids duplicate tasks even in rare selection combinations."}]},{"version":"V 0.152.5 (Betaversion)","date":"20.11.2026 12:29","epics":[{"de":"Auf der Testinstanz können Eltern Schulevaluationen erfassen, korrigieren und zurücknehmen.","en":"On the test instance, parents can add, correct and withdraw school evaluations."}],"stories":[{"de":"Die Tagesrunde kann passende Subtraktions- und Rundungsaufgaben aufnehmen. Der Fassungsverlauf zeigt, ob der App-Speicher die Bewertung bestätigt hat.","en":"The daily round can include targeted subtraction and rounding exercises. The revision history shows whether the app storage has confirmed the evaluation."}],"bugfixes":[{"de":"Bestätigte Einstufungen je Kriterium wirken auf Schullücken, automatischen Fokus und Startschwierigkeit.","en":"Confirmed ratings for each criterion affect school gaps, automatic focus and starting difficulty."},{"de":"Nach dem Upgrade werden zuvor übersprungene Schulbewertungen beim Abgleich nachgeholt.","en":"After an upgrade, sync recovers previously skipped school evaluations."},{"de":"Unter „Weiteres Gerät verbinden“ lässt sich der Verbindungslink mit „Link kopieren“ übernehmen.","en":"Under “Connect another device”, the connection link can be copied with “Copy link”."}]},{"version":"V 0.152 (Betaversion)","date":"","epics":[{"de":"Der Admin kann jetzt ein Elternkonto direkt in der App einladen.","en":"The admin can now invite a parent account directly in the app."}],"stories":[{"de":"Unter Administration gibt es dafuer einen eigenen Bereich mit Link, QR-Code und offenen Einladungen.","en":"Under Administration there is now a dedicated area with link, QR code and open invitations."},{"de":"Der Admin legt dabei nur das Elternkonto an; Kind, Lehrkraft und Familienzuordnung bleiben ausserhalb dieses Pfads.","en":"This path creates only the parent account; child, teacher and family assignment stay outside this flow."}],"bugfixes":[{"de":"Bereits vergebene Anmeldenamen werden beim Admin-Einladen direkt abgefangen.","en":"Already-used login names are caught immediately during the admin invitation flow."}]}];
+const APP_RELEASES=[{"version":"V 0.152.7 (Betaversion)","date":"22.11.2026 21:28","epics":[],"stories":[],"bugfixes":[{"de":"Offline bestätigte Schulbewertungen werden auch nach einem Wechsel des Kontoschlüssels auf weitere berechtigte Geräte übertragen.","en":"School evaluations confirmed offline also reach other authorized devices after an account key change."},{"de":"Beim Update werden zuvor übersprungene Schulbewertungen nachgelesen, ohne doppelte Fassungen anzulegen.","en":"After the update, previously skipped school evaluations are recovered without creating duplicate revisions."}]},{"version":"V 0.152.6 (Betaversion)","date":"","epics":[{"de":"Die möglichen Sterne werden vor jeder Aufgabe angezeigt. Leichte und normale Aufgaben aus schon einmal sicheren Quests bringen bei direkter Wahl keine weiteren Sterne.","en":"Each task shows its possible stars in advance. Easy and normal tasks from quests that were secure before give no further stars when chosen directly."},{"de":"Der vergrößerbare Wissensbaum wächst mit sicheren Quests, Stufe E und erstmals gelösten Neuland-Aufgaben.","en":"The knowledge tree can be enlarged and grows with secure quests, level E and first solved discovery tasks."}],"stories":[{"de":"Neue Blätter, Blüten und Früchte schalten verlässlich eine Geschichte oder einen besonderen Witz frei.","en":"New leaves, flowers and fruit reliably unlock a story or a special joke."},{"de":"Ein Tageswort ergänzt den Kinderbereich; Eltern erhalten eine tägliche Gesprächsfrage. Witze, Pisolala und Tageswort lassen sich freiwillig mit 👍 oder 👎 bewerten.","en":"A daily word joins the child area; parents get a daily conversation question. Jokes, Pisolala and the daily word have optional thumbs-up/down feedback."},{"de":"Beim Update bleiben erreichte Titel, gesammelte Sterne und gewachsene Baumzeichen erhalten.","en":"The update preserves earned titles, collected stars and existing tree growth."}],"bugfixes":[{"de":"Neue Schulbewertungen aktualisieren nach dem Abgleich auch den automatischen Übungsfokus.","en":"New school evaluations also refresh the automatic practice focus after sync."},{"de":"Specific Examples vermeidet auch bei seltenen Auswahlkombinationen doppelte Aufgaben.","en":"Specific Examples avoids duplicate tasks even in rare selection combinations."}]},{"version":"V 0.152.5 (Betaversion)","date":"20.11.2026 12:29","epics":[{"de":"Auf der Testinstanz können Eltern Schulevaluationen erfassen, korrigieren und zurücknehmen.","en":"On the test instance, parents can add, correct and withdraw school evaluations."}],"stories":[{"de":"Die Tagesrunde kann passende Subtraktions- und Rundungsaufgaben aufnehmen. Der Fassungsverlauf zeigt, ob der App-Speicher die Bewertung bestätigt hat.","en":"The daily round can include targeted subtraction and rounding exercises. The revision history shows whether the app storage has confirmed the evaluation."}],"bugfixes":[{"de":"Bestätigte Einstufungen je Kriterium wirken auf Schullücken, automatischen Fokus und Startschwierigkeit.","en":"Confirmed ratings for each criterion affect school gaps, automatic focus and starting difficulty."},{"de":"Nach dem Upgrade werden zuvor übersprungene Schulbewertungen beim Abgleich nachgeholt.","en":"After an upgrade, sync recovers previously skipped school evaluations."},{"de":"Unter „Weiteres Gerät verbinden“ lässt sich der Verbindungslink mit „Link kopieren“ übernehmen.","en":"Under “Connect another device”, the connection link can be copied with “Copy link”."}]},{"version":"V 0.152 (Betaversion)","date":"","epics":[{"de":"Der Admin kann jetzt ein Elternkonto direkt in der App einladen.","en":"The admin can now invite a parent account directly in the app."}],"stories":[{"de":"Unter Administration gibt es dafuer einen eigenen Bereich mit Link, QR-Code und offenen Einladungen.","en":"Under Administration there is now a dedicated area with link, QR code and open invitations."},{"de":"Der Admin legt dabei nur das Elternkonto an; Kind, Lehrkraft und Familienzuordnung bleiben ausserhalb dieses Pfads.","en":"This path creates only the parent account; child, teacher and family assignment stay outside this flow."}],"bugfixes":[{"de":"Bereits vergebene Anmeldenamen werden beim Admin-Einladen direkt abgefangen.","en":"Already-used login names are caught immediately during the admin invitation flow."}]}];
 /* Set by the build from werkzeug/konten.json (S3 login); null = no accounts, app runs without login. */
 /* Accounts v2 (S11 Stufe 1): normAccounts and the rules who sees which child are in module src/module/rechte.mjs. */
 /* Stage 3b, task "Anmeldung im Testbau": the storage of the accounts (module konto). Set only for the test build -
